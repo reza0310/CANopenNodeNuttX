@@ -26,6 +26,94 @@
 #include "CO_config.h"
 #include "CO_driver_target.h"
 
+// ---------- HANDMADE BEGIN ----------
+#ifdef __cplusplus
+#include <stdio.h>
+#include <stddef.h>
+#include <string>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <nuttx/board.h>
+#include <nuttx/can/can.h>
+
+#define CAN_DATA_MAX 8
+#ifndef LOG
+#define LOG(format, ...) { if (logger != NULL) { fprintf(logger, format, ##__VA_ARGS__); fflush(logger); }}
+#endif
+
+class canmsg {
+        int id_;
+        unsigned char len_;
+        unsigned char data_[CAN_DATA_MAX];
+        FILE* logger_;
+
+    public:
+        canmsg(int id) : canmsg(id, NULL) {};
+        canmsg(int id, FILE* logger) {
+            id_ = id;
+            len_ = 0;
+            logger_ = logger;
+            LOG("[CANMSG] Initialized.\r\n");
+        }
+
+        canmsg(int id, unsigned char l, unsigned char *data) : canmsg(id, l, data, NULL) {};
+        canmsg(int id, unsigned char l, unsigned char *data, FILE* logger) {
+            id_ = id;
+            len_ = 0;
+            for (size_t i = 0; i < l; i++) data_[i] = data[i];
+            logger_ = logger;
+            LOG("[CANMSG] Initialized.\r\n");
+        }
+
+        canmsg(CO_CAN_t in) : canmsg(in, NULL) {};
+        canmsg(CO_CAN_t in, FILE* logger) {
+            id_ = in.ident;
+            len_ = in.DLC;
+            for (size_t i = 0; i < len_; i++) data_[i] = in.data[i];
+            logger_ = logger;
+            LOG("[CANMSG] Initialized.\r\n");
+        }
+
+        void add_data(int data) {
+            auto logger = logger_;
+            if (len_ == CAN_DATA_MAX) {
+                LOG("[CANMSG] Full. Cannot add more data.\r\n");
+            } else {
+                data_[len_++] = data;
+                LOG("[CANMSG] Added more data.\r\n");
+            }
+        }
+
+        int get_id(void) { return id_; }
+        unsigned char get_len(void) { return len_; }
+        unsigned char* get_data(void) { return data_; }
+        unsigned char get_data(int i) { return data_[i]; }
+
+        CO_CAN_t get_rtx(void) { CO_CAN_t a = {.ident = id_, .DLC = len_, .data = { 0 }, .bufferFull = false, .syncFlag = true}; for (size_t i = 0; i < len_; i++) a.data[i] = data_[i]; return a; }
+
+        void reset(void) {
+            len_ = 0;
+            memset(data_, 0, CAN_DATA_MAX);
+        }
+
+        void reset(int id) {
+            id_ = id;
+            len_ = 0;
+            memset(data_, 0, CAN_DATA_MAX);
+        }
+};
+
+int can_init(std::string path, FILE* logger);
+void can_deinit(int fd, FILE* logger);
+int can_read(int fd, canmsg& msg, FILE* logger);
+int can_send(int fd, canmsg& msg, FILE* logger);
+#endif
+#ifndef __cplusplus
+typedef void canmsg;
+#endif
+// ---------- HANDMADE END ----------
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -52,49 +140,6 @@ extern "C" {
 #endif
 #endif
 
-/**
- * @defgroup CO_driver Driver
- * Interface between CAN hardware and CANopenNode.
- *
- * @ingroup CO_CANopen_301
- * @{
- * CANopenNode is designed for speed and portability. It runs efficiently on devices from simple 16-bit microcontrollers
- * to PC computers. It can run in multiple threads. Reception of CAN messages is pre-processed with very fast functions.
- * Time critical objects, such as PDO or SYNC are processed in real-time thread and other objects are processed in
- * normal thread. See Flowchart in [README.md](index.html) for more information.
- *
- * @anchor CO_obj
- * #### CANopenNode Object
- * CANopenNode is implemented as a collection of different objects, for example SDO, SYNC, Emergency, PDO, NMT,
- * Heartbeat, etc. Code is written in C language and tries to be object oriented. So each CANopenNode Object is
- * implemented in a pair of .h/.c files. It basically contains a structure with all necessary variables and some
- * functions which operates on it. CANopenNode Object is usually connected with one or more CAN receive or transmit
- * Message Objects. (CAN message Object is a CAN message with specific 11-bit CAN identifier (usually one fixed or a
- * range).)
- *
- * #### Hardware interface of CANopenNode
- * It consists of minimum three files:
- * - **CO_driver.h** file declares common functions. This file is part of the CANopenNode. It is included from each .c
- *   file from CANopenNode.
- * - **CO_driver_target.h** file declares microcontroller specific type declarations and defines some macros, which are
- *   necessary for CANopenNode. This file is included from CO_driver.h.
- * - **CO_driver.c** file defines functions declared in CO_driver.h.
- *
- * **CO_driver_target.h** and **CO_driver.c** files are specific for each different microcontroller and are not part of
- * CANopenNode. There are separate projects for different microcontrollers, which usually include CANopenNode as a git
- * submodule. CANopenNode only includes those two files in the `example` directory and they are basically empty. It
- * should be possible to compile the `CANopenNode/example` on any system, however compiled program is not usable.
- * CO_driver.h contains documentation for all necessary macros, types and functions.
- *
- * See [CANopenNode/Wiki](https://github.com/CANopenNode/CANopenNode/wiki) for a known list of available implementations
- * of CANopenNode on different systems and microcontrollers. Everybody is welcome to extend the list with a link to his
- * own implementation.
- *
- * Implementation of the hardware interface for specific microcontroller is not always an easy task. For reliable and
- * efficient operation it is necessary to know some parts of the target microcontroller in detail (for example threads
- * (or interrupts), CAN module, etc.).
- */
-
 /** Major version number of CANopenNode */
 #define CO_VERSION_MAJOR 4
 /** Minor version number of CANopenNode */
@@ -102,20 +147,6 @@ extern "C" {
 
 /* Macros and declarations in following part are only used for documentation. */
 #ifdef CO_DOXYGEN
-/**
- * @defgroup CO_dataTypes Basic definitions
- * @{
- *
- * Target specific basic definitions and data types.
- *
- * Must be defined in the **CO_driver_target.h** file.
- *
- * Depending on processor or compiler architecture, one of the two macros must be defined: CO_LITTLE_ENDIAN or
- * CO_BIG_ENDIAN. CANopen itself is little endian.
- *
- * Basic data types may be specified differently on different architectures. Usually `true` and `false` are defined in
- * `<stdbool.h>`, `NULL` is defined in `<stddef.h>`, `int8_t` to `uint64_t` are defined in `<stdint.h>`.
- */
 #define CO_LITTLE_ENDIAN                 /**< CO_LITTLE_ENDIAN or CO_BIG_ENDIAN must be defined */
 #define CO_SWAP_16(x)    x               /**< Macro must swap bytes, if CO_BIG_ENDIAN is defined */
 #define CO_SWAP_32(x)    x               /**< Macro must swap bytes, if CO_BIG_ENDIAN is defined */
@@ -134,24 +165,6 @@ typedef unsigned long int uint32_t;      /**< UNSIGNED32 in CANopen (0007h), 32-
 typedef unsigned long long int uint64_t; /**< UNSIGNED64 in CANopen (001Bh), 64-bit unsigned integer */
 typedef float float32_t;  /**< REAL32 in CANopen (0008h), single precision floating point value, 32-bit */
 typedef double float64_t; /**< REAL64 in CANopen (0011h), double precision floating point value, 64-bit */
-/** @} */
-
-/**
- * @defgroup CO_CAN_Message_reception Reception of CAN messages
- * @{
- *
- * Target specific definitions and description of CAN message reception
- *
- * CAN messages in CANopenNode are usually received by its own thread or higher priority interrupt. Received CAN
- * messages are first filtered by hardware or by software. Thread then examines its 11-bit CAN-id and mask and
- * determines, to which \ref CO_obj "CANopenNode Object" it belongs to. After that it calls predefined CANrx_callback()
- * function, which quickly pre-processes the message and fetches the relevant data. CANrx_callback() function is defined
- * by each \ref CO_obj "CANopenNode Object" separately. Pre-processed fetched data are later processed in another
- * thread.
- *
- * If \ref CO_obj "CANopenNode Object" reception of specific CAN message, it must first configure its own CO_CANrx_t
- * object with the CO_CANrxBufferInit() function.
- */
 
 /**
  * CAN receive callback function which pre-processes received CAN message
@@ -223,22 +236,6 @@ typedef struct {
                             void* message); /**< Pointer to CANrx_callback() initialized in CO_CANrxBufferInit() */
 } CO_CANrx_t;
 
-/** @} */
-
-/**
- * @defgroup CO_CAN_Message_transmission Transmission of CAN messages
- * @{
- *
- * Target specific definitions and description of CAN message transmission
- *
- * If \ref CO_obj "CANopenNode Object" needs transmitting CAN message, it must first configure its own CO_CANtx_t object
- * with the CO_CANtxBufferInit() function. CAN message can then be sent with CO_CANsend() function. If at that moment
- * CAN transmit buffer inside microcontroller's CAN module is free, message is copied directly to the CAN module.
- * Otherwise CO_CANsend() function sets _bufferFull_ flag to true. Message will be then sent by CAN TX interrupt as soon
- * as CAN module is freed. Until message is not copied to CAN module, its contents must not change. If there are
- * multiple CO_CANtx_t objects with _bufferFull_ flag set to true, then CO_CANtx_t with lower index will be sent first.
- */
-
 /**
  * Configuration object for CAN transmit message for specific \ref CO_obj "CANopenNode Object".
  *
@@ -250,13 +247,11 @@ typedef struct {
 typedef struct {
     uint32_t ident;             /**< CAN identifier as aligned in CAN module */
     uint8_t DLC;                /**< Length of CAN message */
-    uint8_t data[8];            /**< 8 data bytes */
+    uint8_t data[CAN_DATA_MAX];            /**< 8 data bytes */
     volatile bool_t bufferFull; /**< True if previous message is still in the buffer */
     volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the
                                    synchronous window */
 } CO_CANtx_t;
-
-/** @} */
 
 /**
  * Complete CAN module object.
@@ -312,49 +307,6 @@ typedef struct {
     void* additionalParameters; /**< Additional target specific parameters, optional. */
 } CO_storage_entry_t;
 
-/**
- * @defgroup CO_critical_sections Critical sections
- * @{
- *
- * Protection of critical sections in multi-threaded operation.
- *
- * CANopenNode is designed to run in different threads, as described in [README.md](index.html). Threads are implemented
- * differently in different systems. In microcontrollers threads are interrupts with different priorities, for example.
- * It is necessary to protect sections, where different threads access to the same resource. In simple systems
- * interrupts or scheduler may be temporary disabled between access to the shared resource. Otherwise mutexes or
- * semaphores can be used.
- *
- * #### Reentrant functions
- * Functions CO_CANsend() from C_driver.h, and CO_error() from CO_Emergency.h may be called from different threads.
- * Critical sections must be protected. Either by disabling scheduler or interrupts or by mutexes or semaphores.
- * Lock/unlock macro is called with pointer to CAN module, which may be used inside.
- *
- * #### Object Dictionary variables
- * In general, there are two threads, which accesses OD variables: mainline (initialization, storage, SDO access) and
- * timer (PDO access). CANopenNode uses locking mechanism, where SDO server (or other mainline code) prevents execution
- * of the real-time thread at the moment it reads or writes OD variable. CO_LOCK_OD(CAN_MODULE) and
- * CO_UNLOCK_OD(CAN_MODULE) macros are used to protect:
- * - Whole real-time thread,
- * - SDO server protects read/write access to OD variable.   Locking of long OD variables, not accessible from real-time
- *   thread, may   block RT thread.
- * - Any mainline code, which accesses PDO-mappable OD variable, must protect   read/write with locking macros. Use @ref
- *   OD_mappable() for check.
- * - Other cases, where non-PDO-mappable OD variable is used inside real-time   thread by some other part of the user
- *   application must be considered with   special care. Also when there are multiple threads accessing the OD
- *   (e.g. when using a RTOS), you should always lock the OD.
- *
- * #### Synchronization functions for CAN receive
- * After CAN message is received, it is pre-processed in CANrx_callback(), which copies some data into appropriate
- * object and at the end sets **new_message** flag. This flag is then pooled in another thread, which further processes
- * the message. The problem is, that compiler optimization may shuffle memory operations, so it is necessary to ensure,
- * that **new_message** flag is surely set at the end. It is necessary to use [Memory
- * barrier](https://en.wikipedia.org/wiki/Memory_barrier).
- *
- * If receive function runs inside IRQ, no further synchronization is needed. Otherwise, some kind of synchronization
- * has to be included. The following example uses GCC builtin memory barrier `__sync_synchronize()`. More information
- * can be found [here](https://stackoverflow.com/questions/982129/what-does-sync-synchronize-do#982179).
- */
-
 #define CO_LOCK_CAN_SEND(CAN_MODULE)   /**< Lock critical section in CO_CANsend() */
 #define CO_UNLOCK_CAN_SEND(CAN_MODULE) /**< Unlock critical section in CO_CANsend() */
 #define CO_LOCK_EMCY(CAN_MODULE)       /**< Lock critical section in CO_errorReport() or CO_errorReset() */
@@ -377,17 +329,8 @@ typedef struct {
         rxNew = NULL;                                                                                                  \
     }
 
-/** @} */
-#endif /* CO_DOXYGEN */
+#endif /* ! CO_DOXYGEN */
 
-/**
- * @defgroup CO_Default_CAN_ID_t Default CANopen identifiers
- * @{
- *
- * Default CANopen identifiers for CANopen communication objects. Same as 11-bit addresses of CAN messages. These are
- * default identifiers and can be changed in CANopen. Especially PDO identifiers are configured in PDO linking phase of
- * the CANopen network configuration.
- */
 #define CO_CAN_ID_NMT_SERVICE 0x000U /**< 0x000 Network management */
 #define CO_CAN_ID_GFC         0x001U /**< 0x001 Global fail-safe command */
 #define CO_CAN_ID_SYNC        0x080U /**< 0x080 Synchronous message */
@@ -408,8 +351,6 @@ typedef struct {
 #define CO_CAN_ID_LSS_SLV     0x7E4U /**< 0x7E4 LSS response from slave */
 #define CO_CAN_ID_LSS_MST     0x7E5U /**< 0x7E5 LSS request from master */
 
-/** @} */ /* CO_Default_CAN_ID_t */
-
 /**
  * Restricted CAN-IDs
  *
@@ -423,14 +364,6 @@ typedef struct {
      || (((CAN_ID) >= 0x6E0U) && ((CAN_ID) <= 0x6FFU)) || ((CAN_ID) >= 0x701U))
 #endif
 
-/**
- * @defgroup CO_CAN_ERR_status_t CAN error status bitmasks
- * @{
- *
- * CAN warning level is reached, if CAN transmit or receive error counter is more or equal to 96. CAN passive level is
- * reached, if counters are more or equal to 128. Transmitter goes in error state 'bus off' if transmit error counter is
- * more or equal to 256.
- */
 #define CO_CAN_ERRTX_WARNING    0x0001U /**< 0x0001 CAN transmitter warning */
 #define CO_CAN_ERRTX_PASSIVE    0x0002U /**< 0x0002 CAN transmitter passive */
 #define CO_CAN_ERRTX_BUS_OFF    0x0004U /**< 0x0004 CAN transmitter bus off */
@@ -440,8 +373,6 @@ typedef struct {
 #define CO_CAN_ERRRX_PASSIVE    0x0200U /**< 0x0200 CAN receiver passive */
 #define CO_CAN_ERRRX_OVERFLOW   0x0800U /**< 0x0800 CAN receiver overflow */
 #define CO_CAN_ERR_WARN_PASSIVE 0x0303U /**< 0x0303 combination */
-
-/** @} */ /* CO_CAN_ERR_status_t */
 
 /**
  * Return values of some CANopen functions. If function was executed successfully it returns 0 otherwise it returns <0.
@@ -647,8 +578,6 @@ CO_setUint32(void* buf, uint32_t value) {
     (void)memmove(buf, (const void*)&value, sizeof(value));
     return (uint8_t)(sizeof(value));
 }
-
-/** @} */ /* CO_driver */
 
 #ifdef __cplusplus
 }

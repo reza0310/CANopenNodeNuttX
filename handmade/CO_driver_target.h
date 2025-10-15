@@ -9,9 +9,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define CAN_DATA_MAX 8
+
 #ifdef __cplusplus
 extern "C" {
-#endif
+#endif /* ! __cplusplus */
 
 /* Stack configuration override default values.
  * For more information see file CO_config.h. */
@@ -29,38 +31,30 @@ typedef uint_fast8_t            bool_t;
 typedef float                   float32_t;
 typedef double                  float64_t;
 
-/**
- * \brief           CAN RX message for platform
- *
- * This is platform specific one
- */
 typedef struct {
-    uint32_t ident;                             /*!< Standard identifier */
-    uint8_t dlc;                                /*!< Data length */
-    uint8_t data[8];                            /*!< Received data */
-} CO_CANrxMsg_t;
+    int ident;                              /**< CAN identifier as aligned in CAN module */
+    uint8_t DLC;                            /**< Length of CAN message */
+    uint8_t data[CAN_DATA_MAX];             /**< 8 data bytes */
+    volatile bool_t bufferFull; /**< True if previous message is still in the buffer */
+    volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the synchronous window */
+    // void (*pCANrx_callback)(void* object, void* message); /**< Pointer to CANrx_callback() initialized in CO_CANrxBufferInit() */
+} CO_CAN_t;
+
+// typedef struct {
+    // int ident;                  /**< CAN identifier as aligned in CAN module */
+    // uint8_t DLC;                /**< Length of CAN message */
+    // uint8_t data[CAN_DATA_MAX]; /**< 8 data bytes */
+    // volatile bool_t bufferFull; /**< True if previous message is still in the buffer */
+    // volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the synchronous window */
+// } CO_CANtx_t;
+
+#define CO_CANrx_t CO_CAN_t
+#define CO_CANtx_t CO_CAN_t
 
 /* Access to received CAN message */
-#define CO_CANrxMsg_readIdent(msg)          ((uint16_t)(((CO_CANrxMsg_t *)(msg)))->ident)
-#define CO_CANrxMsg_readDLC(msg)            ((uint8_t)(((CO_CANrxMsg_t *)(msg)))->dlc)
-#define CO_CANrxMsg_readData(msg)           ((uint8_t *)(((CO_CANrxMsg_t *)(msg)))->data)
-
-/* Received message object */
-typedef struct {
-    uint16_t ident;
-    uint16_t mask;
-    void *object;
-    void (*CANrx_callback)(void *object, void *message);
-} CO_CANrx_t;
-
-/* Transmit message object */
-typedef struct {
-    uint32_t ident;
-    uint8_t DLC;
-    uint8_t data[8];
-    volatile bool_t bufferFull;
-    volatile bool_t syncFlag;
-} CO_CANtx_t;
+#define CO_CANrxMsg_readIdent(msg) ((uint16_t)((CO_CAN_t*)(msg))->ident)
+#define CO_CANrxMsg_readDLC(msg)   ((uint8_t)((CO_CAN_t*)(msg))->DLC)
+#define CO_CANrxMsg_readData(msg)  ((uint8_t*)((CO_CAN_t*)(msg))->data)
 
 /* CAN module object */
 typedef struct {
@@ -108,6 +102,6 @@ typedef struct {
 
 #ifdef __cplusplus
 }
-#endif /* __cplusplus */
+#endif /* ! __cplusplus */
 
-#endif /* CO_DRIVER_TARGET_H */
+#endif /* ! CO_DRIVER_TARGET_H */
