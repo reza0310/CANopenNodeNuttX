@@ -28,14 +28,19 @@
 
 // ---------- HANDMADE BEGIN ----------
 #ifdef __cplusplus
-#include <stdio.h>
-#include <stddef.h>
-#include <string>
-#include <sys/types.h>
-#include <sys/stat.h>
+
+#include <errno.h>
 #include <fcntl.h>
 #include <nuttx/board.h>
 #include <nuttx/can/can.h>
+#include <nuttx/config.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define CAN_DATA_MAX 8
 #ifndef LOG
@@ -108,6 +113,7 @@ int can_init(std::string path, FILE* logger);
 void can_deinit(int fd, FILE* logger);
 int can_read(int fd, canmsg& msg, FILE* logger);
 int can_send(int fd, canmsg& msg, FILE* logger);
+int can_setbaud(int fd, int bauds, FILE* logger);
 #endif
 #ifndef __cplusplus
 typedef void canmsg;

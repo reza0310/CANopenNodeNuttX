@@ -82,6 +82,8 @@ typedef struct {
     void *addrNV;
 } CO_storage_entry_t;
 
+// https://nuttx.apache.org/docs/latest/implementation/interrupt_controls.html
+
 /* (un)lock critical section in CO_CANsend() */
 #define CO_LOCK_CAN_SEND(CAN_MODULE)
 #define CO_UNLOCK_CAN_SEND(CAN_MODULE)

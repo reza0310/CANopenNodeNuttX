@@ -1,7 +1,25 @@
 #include "301/CO_driver.h"
 
-int can_init(std::string path, FILE* logger)
-{
+// File heavily inspired by https://github.com/CANopenNode/CanOpenSTM32/blob/master/CANopenNode_STM32/CO_driver_STM32.c
+
+FILE* GLOBAL_LOGGER = fopen("/dev/ttyS2", "w+"); // open in reading and writing mode
+
+bool can_start(int fd, FILE* logger) {
+    if (logger == NULL) logger = GLOBAL_LOGGER;
+    LOG("[CAN] Starting !\r\n");
+    fd++;
+    return true;
+}
+
+bool can_stop(int fd, FILE* logger) {
+    if (logger == NULL) logger = GLOBAL_LOGGER;
+    LOG("[CAN] Stopping !\r\n");
+    fd++;
+    return true;
+}
+
+int can_init(std::string path, FILE* logger) {
+    if (logger == NULL) logger = GLOBAL_LOGGER;
     /* Open device */
     int fd = open(path.c_str(), O_RDWR);
     if (fd < 0)
@@ -10,18 +28,20 @@ int can_init(std::string path, FILE* logger)
         return -1;
     }
     LOG("[CAN] Initialized.\r\n");
+    can_start(fd, logger);
     return fd;
 }
 
-void can_deinit(int fd, FILE* logger)
-{
+void can_deinit(int fd, FILE* logger) {
+    if (logger == NULL) logger = GLOBAL_LOGGER;
+    can_stop(fd, logger);
     LOG("[CAN] Closing !\r\n");
-    close(fd); // TODO: Probable runtime error since second log call never get sent.
+    close(fd);
     LOG("[CAN] Closed.\r\n");
 }
 
-int can_read(int fd, canmsg& msg, FILE* logger)
-{
+int can_read(int fd, canmsg& msg, FILE* logger) {
+    if (logger == NULL) logger = GLOBAL_LOGGER;
     struct can_msg_s frame;
     size_t             ret;
 
@@ -37,7 +57,7 @@ int can_read(int fd, canmsg& msg, FILE* logger)
     /* Check for error reports */
     if (frame.cm_hdr.ch_error != 0)
     {
-        LOG("[CAN] An error has been detected: [0x%04\]\r\n", frame.cm_hdr.ch_id);
+        LOG("[CAN] An error has been detected: [%#06lX]\r\n", frame.cm_hdr.ch_id);
         if ((frame.cm_hdr.ch_id & CAN_ERROR_TXTIMEOUT) != 0) LOG("- Transmission timeout\r\n");
         if ((frame.cm_hdr.ch_id & CAN_ERROR_LOSTARB) != 0) LOG("- Lost arbitration: %02x\r\n", frame.cm_data[0]);
         if ((frame.cm_hdr.ch_id & CAN_ERROR_CONTROLLER) != 0) LOG("- Controller error: %02x\r\n", frame.cm_data[1]);
@@ -53,7 +73,7 @@ int can_read(int fd, canmsg& msg, FILE* logger)
     /* Convert frame to common format */
     msg.reset(frame.cm_hdr.ch_id);
     // msg.len_ = can_dlc2bytes(frame.cm_hdr.ch_dlc);
-    for (int i = 0; i < msg.len_; i++) // As in send
+    for (int i = 0; i < can_dlc2bytes(frame.cm_hdr.ch_dlc); i++) // As in send
     {
         msg.add_data(frame.cm_data[i]);
     }
@@ -62,8 +82,8 @@ int can_read(int fd, canmsg& msg, FILE* logger)
     return ret;
 }
 
-int can_send(int fd, canmsg& msg, FILE* logger)
-{
+int can_send(int fd, canmsg& msg, FILE* logger) {
+    if (logger == NULL) logger = GLOBAL_LOGGER;
     struct can_msg_s frame;
     int                ret;
 
@@ -100,6 +120,31 @@ int can_send(int fd, canmsg& msg, FILE* logger)
     return ret;
 }
 
+int can_setbaud(int fd, int bauds, FILE* logger) { // https://gitlab.fel.cvut.cz/lencmich/nuttx-teensy/-/blob/master/apps/canutils/canlib/canlib_setbaud.c
+    if (logger == NULL) logger = GLOBAL_LOGGER;
+    int ret;
+    struct canioc_bittiming_s timings;
+
+    ret = ioctl(fd, CANIOC_GET_BITTIMING, (unsigned long)&timings);
+    if (ret != OK)
+    {
+        LOG("[CAN] CANIOC_GET_BITTIMING failed, errno=%d\n", errno);
+        return ret;
+    }
+
+    timings.bt_baud = bauds;
+
+    ret = ioctl(fd, CANIOC_SET_BITTIMING, (unsigned long)&timings);
+    if (ret != OK)
+    {
+        LOG("[CAN] CANIOC_SET_BITTIMING failed, errno=%d\n", errno);
+    }
+
+    LOG("[CAN] Successfully changed baudrate");
+
+    return ret;
+}
+
 /**
  * CAN receive callback function which pre-processes received CAN message
  *
@@ -109,21 +154,28 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  * @param object pointer to specific \ref CO_obj "CANopenNode Object", registered with CO_CANrxBufferInit()
  * @param rxMsg pointer to received CAN message
  */
-// void CANrx_callback(void* object, void* rxMsg);
+// void CANrx_callback(void* object, void* rxMsg); TODO
 
 /**
  * Request CAN configuration (stopped) mode and *wait* until it is set.
  *
  * @param CANptr Pointer to CAN device
  */
-// void CO_CANsetConfigurationMode(void* CANptr);
+void CO_CANsetConfigurationMode(void* CANptr) {
+    if (CANptr)
+        can_stop(*static_cast<int*>(CANptr), NULL);
+}
 
 /**
  * Request CAN normal (operational) mode and *wait* until it is set.
  *
  * @param CANmodule CO_CANmodule_t object.
  */
-// void CO_CANsetNormalMode(CO_CANmodule_t* CANmodule);
+void CO_CANsetNormalMode(CO_CANmodule_t* CANmodule) {
+    if (CANmodule && CANmodule->CANptr)
+        if (can_start(*static_cast<int*>(CANmodule->CANptr), NULL))
+            CANmodule->CANnormal = true;
+}
 
 /**
  * Initialize CAN module object.
@@ -141,15 +193,63 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  *
  * Return #CO_ReturnError_t: CO_ERROR_NO or CO_ERROR_ILLEGAL_ARGUMENT.
  */
-// CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t* CANmodule, void* CANptr, CO_CANrx_t rxArray[], uint16_t rxSize,
-                                   CO_CANtx_t txArray[], uint16_t txSize, uint16_t CANbitRate);
+CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t* CANmodule, void* CANptr, CO_CANrx_t rxArray[], uint16_t rxSize, CO_CANtx_t txArray[], uint16_t txSize, uint16_t CANbitRate) {
+    if (CANmodule == NULL || rxArray == NULL || txArray == NULL) {
+        return CO_ERROR_ILLEGAL_ARGUMENT;
+    }
+    switch (CANbitRate) {
+        case 10:
+        case 20:
+        case 50:
+        case 125:
+        case 250:
+        case 500:
+        case 800:
+        case 1000:
+            break;
+        default:
+            CANbitRate = 125;
+            break;
+    }
+    if (!can_start(*static_cast<int*>(CANptr), NULL)) return CO_ERROR_ILLEGAL_ARGUMENT;
+    CANmodule->CANptr = CANptr;
+    CANmodule->rxArray = rxArray;
+    CANmodule->rxSize = rxSize;
+    CANmodule->txArray = txArray;
+    CANmodule->txSize = txSize;
+    can_setbaud(*static_cast<int*>(CANptr), CANbitRate * 1000, NULL);
+    CANmodule->CANnormal = false;
+    CANmodule->useCANrxFilters = false;
+    CANmodule->bufferInhibitFlag = false;
+    CANmodule->firstCANtxMessage = true;
+    CANmodule->CANtxCount = 0U;
+    CANmodule->CANerrorStatus = 0;
+    CANmodule->errOld = 0U;
+
+    for (int tmp = 0; tmp < 2; tmp++) {
+        auto size = tmp == 0 ? rxSize : txSize;
+        auto arr = tmp == 0 ? rxArray : txArray;
+        for (uint16_t i = 0U; i < size; i++) {
+            arr[i].ident = 0U;
+            arr[i].DLC = 0U;
+            for (size_t j = 0; j < CAN_DATA_MAX; j++)
+                arr[i].data[j] = 0;
+            arr[i].bufferFull = false;
+            arr[i].syncFlag = false;
+        }
+    }
+
+    return CO_ERROR_NO;
+}
 
 /**
  * Switch off CANmodule. Call at program exit.
  *
  * @param CANmodule CAN module object.
  */
-// void CO_CANmodule_disable(CO_CANmodule_t* CANmodule);
+void CO_CANmodule_disable(CO_CANmodule_t* CANmodule) {
+    can_deinit(*static_cast<int*>(CANmodule->CANptr), NULL);
+}
 
 /**
  * Configure CAN message receive buffer.
@@ -172,8 +272,7 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  * Return #CO_ReturnError_t: CO_ERROR_NO CO_ERROR_ILLEGAL_ARGUMENT or CO_ERROR_OUT_OF_MEMORY (not enough masks for
  * configuration).
  */
-// CO_ReturnError_t CO_CANrxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, uint16_t mask,
-                                    bool_t rtr, void* object, void (*CANrx_callback)(void* object, void* message));
+// CO_ReturnError_t CO_CANrxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, uint16_t mask, bool_t rtr, void* object, void (*CANrx_callback)(void* object, void* message)); TODO
 
 /**
  * Configure CAN message transmit buffer.
@@ -192,7 +291,7 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  * @return Pointer to CAN transmit message buffer. 8 bytes data array inside buffer should be written, before
  * CO_CANsend() function is called. Zero is returned in case of wrong arguments.
  */
-// CO_CANtx_t* CO_CANtxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, bool_t rtr, uint8_t noOfBytes, bool_t syncFlag);
+// CO_CANtx_t* CO_CANtxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, bool_t rtr, uint8_t noOfBytes, bool_t syncFlag); TODO
 
 /**
  * Send CAN message.
@@ -204,7 +303,38 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  * @return #CO_ReturnError_t: CO_ERROR_NO, CO_ERROR_TX_OVERFLOW or CO_ERROR_TX_PDO_WINDOW (Synchronous TPDO is outside
  * window).
  */
-// CO_ReturnError_t CO_CANsend(CO_CANmodule_t* CANmodule, CO_CANtx_t* buffer);
+CO_ReturnError_t CO_CANsend(CO_CANmodule_t* CANmodule, CO_CANtx_t* buffer) {
+    CO_ReturnError_t err = CO_ERROR_NO;
+
+    /* Verify overflow */
+    if (buffer->bufferFull) {
+        if (!CANmodule->firstCANtxMessage) {
+            /* don't set error, if bootup message is still on buffers */
+            CANmodule->CANerrorStatus |= CO_CAN_ERRTX_OVERFLOW;
+        }
+        err = CO_ERROR_TX_OVERFLOW;
+    }
+
+    /*
+     * Send message to CAN network
+     *
+     * Lock interrupts for atomic operation
+     */
+    CO_LOCK_CAN_SEND(CANmodule);
+    canmsg msg(*buffer);
+    if (can_send(*static_cast<int*>(CANmodule->CANptr), msg, NULL)) {
+        CANmodule->bufferInhibitFlag = buffer->syncFlag;
+    } else {
+        /* Only increment count if buffer wasn't already full */
+        if (!buffer->bufferFull) {
+            buffer->bufferFull = true;
+            CANmodule->CANtxCount++;
+        }
+    }
+    CO_UNLOCK_CAN_SEND(CANmodule);
+
+    return err;
+}
 
 /**
  * Clear all synchronous TPDOs from CAN module transmit buffers.
@@ -218,7 +348,7 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  *
  * @param CANmodule This object.
  */
-// void CO_CANclearPendingSyncPDOs(CO_CANmodule_t* CANmodule);
+// void CO_CANclearPendingSyncPDOs(CO_CANmodule_t* CANmodule); TODO
 
 /**
  * Process can module - verify CAN errors
@@ -228,4 +358,41 @@ int can_send(int fd, canmsg& msg, FILE* logger)
  *
  * @param CANmodule This object.
  */
-// void CO_CANmodule_process(CO_CANmodule_t* CANmodule);
+void CO_CANmodule_process(CO_CANmodule_t* CANmodule) {
+    uint32_t err = 0;
+
+    // CANOpen just care about Bus_off, Warning, Passive and Overflow
+    // I didn't find overflow error register in STM32, if you find it please let me know
+
+    err = ((CAN_HandleTypeDef*)((CANopenNodeSTM32*)CANmodule->CANptr)->CANHandle)->Instance->ESR
+          & (CAN_ESR_BOFF | CAN_ESR_EPVF | CAN_ESR_EWGF);
+
+    //    uint32_t esrVal = ((CAN_HandleTypeDef*)((CANopenNodeSTM32*)CANmodule->CANptr)->CANHandle)->Instance->ESR; Debug purpose
+    if (CANmodule->errOld != err) {
+
+        uint16_t status = CANmodule->CANerrorStatus;
+
+        CANmodule->errOld = err;
+
+        if (err & CAN_ESR_BOFF) {
+            status |= CO_CAN_ERRTX_BUS_OFF;
+            // In this driver, we assume that auto bus recovery is activated ! so this error will eventually handled automatically.
+
+        } else {
+            /* recalculate CANerrorStatus, first clear some flags */
+            status &= 0xFFFF
+                      ^ (CO_CAN_ERRTX_BUS_OFF | CO_CAN_ERRRX_WARNING | CO_CAN_ERRRX_PASSIVE | CO_CAN_ERRTX_WARNING
+                         | CO_CAN_ERRTX_PASSIVE);
+
+            if (err & CAN_ESR_EWGF) {
+                status |= CO_CAN_ERRRX_WARNING | CO_CAN_ERRTX_WARNING;
+            }
+
+            if (err & CAN_ESR_EPVF) {
+                status |= CO_CAN_ERRRX_PASSIVE | CO_CAN_ERRTX_PASSIVE;
+            }
+        }
+
+        CANmodule->CANerrorStatus = status;
+    }
+}
