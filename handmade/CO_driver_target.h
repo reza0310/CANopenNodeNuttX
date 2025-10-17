@@ -37,16 +37,8 @@ typedef struct {
     uint8_t data[CAN_DATA_MAX];             /**< 8 data bytes */
     volatile bool_t bufferFull; /**< True if previous message is still in the buffer */
     volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the synchronous window */
-    // void (*pCANrx_callback)(void* object, void* message); /**< Pointer to CANrx_callback() initialized in CO_CANrxBufferInit() */
-} CO_CAN_t;
 
-// typedef struct {
-    // int ident;                  /**< CAN identifier as aligned in CAN module */
-    // uint8_t DLC;                /**< Length of CAN message */
-    // uint8_t data[CAN_DATA_MAX]; /**< 8 data bytes */
-    // volatile bool_t bufferFull; /**< True if previous message is still in the buffer */
-    // volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the synchronous window */
-// } CO_CANtx_t;
+} CO_CAN_t;
 
 #define CO_CANrx_t CO_CAN_t
 #define CO_CANtx_t CO_CAN_t

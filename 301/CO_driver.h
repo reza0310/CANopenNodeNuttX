@@ -1,23 +1,3 @@
-/**
- * Interface between CAN hardware and CANopenNode.
- *
- * @file        CO_driver.h
- * @ingroup     CO_driver
- * @author      Janez Paternoster
- * @copyright   2004 - 2020 Janez Paternoster
- *
- * This file is part of <https://github.com/CANopenNode/CANopenNode>, a CANopen Stack.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
- * file except in compliance with the License. You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is
- * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and limitations under the License.
- */
-
 #ifndef CO_DRIVER_H
 #define CO_DRIVER_H
 
@@ -27,6 +7,12 @@
 #include "CO_driver_target.h"
 
 // ---------- HANDMADE BEGIN ----------
+
+struct can_file_desc {
+    int fd;
+    unsigned int status;
+};
+
 #ifdef __cplusplus
 
 #include <errno.h>
@@ -109,42 +95,20 @@ class canmsg {
         }
 };
 
-int can_init(std::string path, FILE* logger);
-void can_deinit(int fd, FILE* logger);
-int can_read(int fd, canmsg& msg, FILE* logger);
-int can_send(int fd, canmsg& msg, FILE* logger);
-int can_setbaud(int fd, int bauds, FILE* logger);
-#endif
+struct can_file_desc can_init(std::string path, FILE* logger);
+void can_deinit(struct can_file_desc fd, FILE* logger);
+int can_read(struct can_file_desc fd, canmsg& msg, FILE* logger);
+int can_send(struct can_file_desc fd, canmsg& msg, FILE* logger);
+int can_setbaud(struct can_file_desc fd, int bauds, FILE* logger);
+#endif /* __cplusplus */
 #ifndef __cplusplus
 typedef void canmsg;
-#endif
+#endif /* ! __cplusplus */
 // ---------- HANDMADE END ----------
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-/* Stack configuration default global values. For more information see file CO_config.h. */
-#ifndef CO_CONFIG_GLOBAL_FLAG_CALLBACK_PRE
-#define CO_CONFIG_GLOBAL_FLAG_CALLBACK_PRE (0)
-#endif
-#ifndef CO_CONFIG_GLOBAL_RT_FLAG_CALLBACK_PRE
-#define CO_CONFIG_GLOBAL_RT_FLAG_CALLBACK_PRE (0)
-#endif
-#ifndef CO_CONFIG_GLOBAL_FLAG_TIMERNEXT
-#define CO_CONFIG_GLOBAL_FLAG_TIMERNEXT (0)
-#endif
-#ifndef CO_CONFIG_GLOBAL_FLAG_OD_DYNAMIC
-#define CO_CONFIG_GLOBAL_FLAG_OD_DYNAMIC CO_CONFIG_FLAG_OD_DYNAMIC
-#endif
-#ifdef CO_DEBUG_COMMON
-#if (CO_CONFIG_DEBUG) & CO_CONFIG_DEBUG_SDO_CLIENT
-#define CO_DEBUG_SDO_CLIENT(msg) CO_DEBUG_COMMON(msg)
-#endif
-#if (CO_CONFIG_DEBUG) & CO_CONFIG_DEBUG_SDO_SERVER
-#define CO_DEBUG_SDO_SERVER(msg) CO_DEBUG_COMMON(msg)
-#endif
-#endif
+#endif /* __cplusplus */
 
 /** Major version number of CANopenNode */
 #define CO_VERSION_MAJOR 4
@@ -171,6 +135,28 @@ typedef unsigned long int uint32_t;      /**< UNSIGNED32 in CANopen (0007h), 32-
 typedef unsigned long long int uint64_t; /**< UNSIGNED64 in CANopen (001Bh), 64-bit unsigned integer */
 typedef float float32_t;  /**< REAL32 in CANopen (0008h), single precision floating point value, 32-bit */
 typedef double float64_t; /**< REAL64 in CANopen (0011h), double precision floating point value, 64-bit */
+
+/* Stack configuration default global values. For more information see file CO_config.h. */
+#ifndef CO_CONFIG_GLOBAL_FLAG_CALLBACK_PRE
+#define CO_CONFIG_GLOBAL_FLAG_CALLBACK_PRE (0)
+#endif
+#ifndef CO_CONFIG_GLOBAL_RT_FLAG_CALLBACK_PRE
+#define CO_CONFIG_GLOBAL_RT_FLAG_CALLBACK_PRE (0)
+#endif
+#ifndef CO_CONFIG_GLOBAL_FLAG_TIMERNEXT
+#define CO_CONFIG_GLOBAL_FLAG_TIMERNEXT (0)
+#endif
+#ifndef CO_CONFIG_GLOBAL_FLAG_OD_DYNAMIC
+#define CO_CONFIG_GLOBAL_FLAG_OD_DYNAMIC CO_CONFIG_FLAG_OD_DYNAMIC
+#endif
+#ifdef CO_DEBUG_COMMON
+#if (CO_CONFIG_DEBUG) & CO_CONFIG_DEBUG_SDO_CLIENT
+#define CO_DEBUG_SDO_CLIENT(msg) CO_DEBUG_COMMON(msg)
+#endif
+#if (CO_CONFIG_DEBUG) & CO_CONFIG_DEBUG_SDO_SERVER
+#define CO_DEBUG_SDO_SERVER(msg) CO_DEBUG_COMMON(msg)
+#endif
+#endif
 
 /**
  * CAN receive callback function which pre-processes received CAN message
@@ -238,8 +224,7 @@ typedef struct {
     uint16_t ident; /**< Standard CAN Identifier (bits 0..10) + RTR (bit 11) */
     uint16_t mask;  /**< Standard CAN Identifier mask with the same alignment as ident */
     void* object;   /**< \ref CO_obj "CANopenNode Object" initialized in from CO_CANrxBufferInit() */
-    void (*pCANrx_callback)(void* object,
-                            void* message); /**< Pointer to CANrx_callback() initialized in CO_CANrxBufferInit() */
+    void (*pCANrx_callback)(void* object, void* message); /**< Pointer to CANrx_callback() initialized in CO_CANrxBufferInit() */
 } CO_CANrx_t;
 
 /**
@@ -255,8 +240,7 @@ typedef struct {
     uint8_t DLC;                /**< Length of CAN message */
     uint8_t data[CAN_DATA_MAX];            /**< 8 data bytes */
     volatile bool_t bufferFull; /**< True if previous message is still in the buffer */
-    volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the
-                                   synchronous window */
+    volatile bool_t syncFlag;   /**< Synchronous PDO messages has this flag set. It prevents them to be sent outside the synchronous window */
 } CO_CANtx_t;
 
 /**
@@ -379,6 +363,8 @@ typedef struct {
 #define CO_CAN_ERRRX_PASSIVE    0x0200U /**< 0x0200 CAN receiver passive */
 #define CO_CAN_ERRRX_OVERFLOW   0x0800U /**< 0x0800 CAN receiver overflow */
 #define CO_CAN_ERR_WARN_PASSIVE 0x0303U /**< 0x0303 combination */
+#define CO_CAN_GOOD             0x1000U /**< HANDMADE */
+#define CO_CAN_DESTROYED        0x2000U /**< HANDMADE */
 
 /**
  * Return values of some CANopen functions. If function was executed successfully it returns 0 otherwise it returns <0.
@@ -403,128 +389,17 @@ typedef enum {
     CO_ERROR_WRONG_NMT_STATE = -16, /**< Command can't be processed in current state */
     CO_ERROR_SYSCALL = -17,         /**< Syscall failed */
     CO_ERROR_INVALID_STATE = -18,   /**< Driver not ready */
-    CO_ERROR_NODE_ID_UNCONFIGURED_LSS =
-        -19 /**< Node-id is in LSS unconfigured state. If objects are handled properly, this may not be an error. */
+    CO_ERROR_NODE_ID_UNCONFIGURED_LSS = -19 /**< Node-id is in LSS unconfigured state. If objects are handled properly, this may not be an error. */
 } CO_ReturnError_t;
 
-/**
- * Request CAN configuration (stopped) mode and *wait* until it is set.
- *
- * @param CANptr Pointer to CAN device
- */
 void CO_CANsetConfigurationMode(void* CANptr);
-
-/**
- * Request CAN normal (operational) mode and *wait* until it is set.
- *
- * @param CANmodule CO_CANmodule_t object.
- */
 void CO_CANsetNormalMode(CO_CANmodule_t* CANmodule);
-
-/**
- * Initialize CAN module object.
- *
- * Function must be called in the communication reset section. CAN module must be in Configuration Mode before.
- *
- * @param CANmodule This object will be initialized.
- * @param CANptr Pointer to CAN device.
- * @param rxArray Array for handling received CAN messages
- * @param rxSize Size of the above array. Must be equal to number of receiving CAN objects.
- * @param txArray Array for handling transmitting CAN messages
- * @param txSize Size of the above array. Must be equal to number of transmitting CAN objects.
- * @param CANbitRate Valid values are (in kbps): 10, 20, 50, 125, 250, 500, 800, 1000. If value is illegal, bitrate
- * defaults to 125.
- *
- * Return #CO_ReturnError_t: CO_ERROR_NO or CO_ERROR_ILLEGAL_ARGUMENT.
- */
-CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t* CANmodule, void* CANptr, CO_CANrx_t rxArray[], uint16_t rxSize,
-                                   CO_CANtx_t txArray[], uint16_t txSize, uint16_t CANbitRate);
-
-/**
- * Switch off CANmodule. Call at program exit.
- *
- * @param CANmodule CAN module object.
- */
+CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t* CANmodule, void* CANptr, CO_CANrx_t rxArray[], uint16_t rxSize, CO_CANtx_t txArray[], uint16_t txSize, uint16_t CANbitRate);
 void CO_CANmodule_disable(CO_CANmodule_t* CANmodule);
-
-/**
- * Configure CAN message receive buffer.
- *
- * Function configures specific CAN receive buffer. It sets CAN identifier and connects buffer with specific object.
- * Function must be called for each member in _rxArray_ from CO_CANmodule_t.
- *
- * @param CANmodule This object.
- * @param index Index of the specific buffer in _rxArray_.
- * @param ident 11-bit standard CAN Identifier. If two or more CANrx buffers have the same _ident_, then buffer with
- * lowest _index_ has precedence and other CANrx buffers will be ignored.
- * @param mask 11-bit mask for identifier. Most usually set to 0x7FF. Received message (rcvMsg) will be accepted if the
- * following condition is true: (((rcvMsgId ^ ident) & mask) == 0).
- * @param rtr If true, 'Remote Transmit Request' messages will be accepted.
- * @param object CANopen object, to which buffer is connected. It will be used as an argument to CANrx_callback. Its
- * type is (void), CANrx_callback will change its type back to the correct object type.
- * @param CANrx_callback Pointer to function, which will be called, if received CAN message matches the identifier. It
- * must be fast function.
- *
- * Return #CO_ReturnError_t: CO_ERROR_NO CO_ERROR_ILLEGAL_ARGUMENT or CO_ERROR_OUT_OF_MEMORY (not enough masks for
- * configuration).
- */
-CO_ReturnError_t CO_CANrxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, uint16_t mask,
-                                    bool_t rtr, void* object, void (*CANrx_callback)(void* object, void* message));
-
-/**
- * Configure CAN message transmit buffer.
- *
- * Function configures specific CAN transmit buffer. Function must be called for each member in _txArray_ from
- * CO_CANmodule_t.
- *
- * @param CANmodule This object.
- * @param index Index of the specific buffer in _txArray_.
- * @param ident 11-bit standard CAN Identifier.
- * @param rtr If true, 'Remote Transmit Request' messages will be transmitted.
- * @param noOfBytes Length of CAN message in bytes (0 to 8 bytes).
- * @param syncFlag This flag bit is used for synchronous TPDO messages. If it is set, message will not be sent, if
- * current time is outside synchronous window.
- *
- * @return Pointer to CAN transmit message buffer. 8 bytes data array inside buffer should be written, before
- * CO_CANsend() function is called. Zero is returned in case of wrong arguments.
- */
-CO_CANtx_t* CO_CANtxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, bool_t rtr, uint8_t noOfBytes,
-                               bool_t syncFlag);
-
-/**
- * Send CAN message.
- *
- * @param CANmodule This object.
- * @param buffer Pointer to transmit buffer, returned by CO_CANtxBufferInit(). Data bytes must be written in buffer
- * before function call.
- *
- * @return #CO_ReturnError_t: CO_ERROR_NO, CO_ERROR_TX_OVERFLOW or CO_ERROR_TX_PDO_WINDOW (Synchronous TPDO is outside
- * window).
- */
+CO_ReturnError_t CO_CANrxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, uint16_t mask, bool_t rtr, void* object, void (*CANrx_callback)(void* object, void* message));
+CO_CANtx_t* CO_CANtxBufferInit(CO_CANmodule_t* CANmodule, uint16_t index, uint16_t ident, bool_t rtr, uint8_t noOfBytes, bool_t syncFlag);
 CO_ReturnError_t CO_CANsend(CO_CANmodule_t* CANmodule, CO_CANtx_t* buffer);
-
-/**
- * Clear all synchronous TPDOs from CAN module transmit buffers.
- *
- * CANopen allows synchronous PDO communication only inside time between SYNC message and SYNC Window. If time is
- * outside this window, new synchronous PDOs must not be sent and all pending sync TPDOs, which may be on CAN TX
- * buffers, may optionally be cleared.
- *
- * This function checks (and aborts transmission if necessary) CAN TX buffers when it is called. Function should be
- * called by the stack in the moment, when SYNC time was just passed out of synchronous window.
- *
- * @param CANmodule This object.
- */
 void CO_CANclearPendingSyncPDOs(CO_CANmodule_t* CANmodule);
-
-/**
- * Process can module - verify CAN errors
- *
- * Function must be called cyclically. It should calculate CANerrorStatus bitfield for CAN errors defined in @ref
- * CO_CAN_ERR_status_t.
- *
- * @param CANmodule This object.
- */
 void CO_CANmodule_process(CO_CANmodule_t* CANmodule);
 
 /**
