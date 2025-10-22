@@ -2,6 +2,11 @@
 
 FILE* GLOBAL_LOGGER = fopen("/dev/ttyS2", "w+"); // open in reading and writing mode
 
+// ********************************************************************************************
+// *                                   BASIC CAN FUNCTIONS                                    *
+// * Partly from https://www.railab.me/posts/2025/2/nuttx-and-small-systems-can-node-example/ *
+// ********************************************************************************************
+
 bool can_start(struct can_file_desc fd, FILE* logger) {
     if (logger == NULL) logger = GLOBAL_LOGGER;
     if (fd.status == CO_CAN_DESTROYED) return false;
@@ -128,22 +133,25 @@ int can_setbaud(struct can_file_desc fd, int bauds, FILE* logger) { // https://g
 
     ret = ioctl(fd.fd, CANIOC_GET_BITTIMING, (unsigned long)&timings);
     if (ret != OK) {
-        LOG("[CAN] CANIOC_GET_BITTIMING failed, errno=%d\n", errno);
+        LOG("[CAN] CANIOC_GET_BITTIMING failed, errno=%d.\r\n", errno);
         return ret;
     }
 
     timings.bt_baud = bauds;
 
     ret = ioctl(fd.fd, CANIOC_SET_BITTIMING, (unsigned long)&timings);
-    if (ret != OK) { LOG("[CAN] CANIOC_SET_BITTIMING failed, errno=%d\n", errno); }
-    else { LOG("[CAN] Successfully changed baudrate"); }
+    if (ret != OK) { LOG("[CAN] CANIOC_SET_BITTIMING failed, errno=%d.\r\n", errno); }
+    else { LOG("[CAN] Successfully changed baudrate.\r\n"); }
 
     return ret;
 }
 
-// After this point of the file, all the remaining is heavily inspired by https://github.com/CANopenNode/CanOpenSTM32/blob/master/CANopenNode_STM32/CO_driver_STM32.c
-// It is also good to remember that it wasn't tested much more than "It's compiling"
-// Note: Update above comment if more testing is done XD
+// **********************************************************************************************************************************************************************
+// *                                                                                  DRIVER                                                                            *
+// * After this point of the file, all the remaining is heavily inspired by https://github.com/CANopenNode/CanOpenSTM32/blob/master/CANopenNode_STM32/CO_driver_STM32.c *
+// * It is also good to remember that it wasn't tested much more than "It's compiling"                                                                                  *
+// * Note: Update above comment if more testing is done XD                                                                                                              *
+// **********************************************************************************************************************************************************************
 
 /**
  * CAN receive callback function which pre-processes received CAN message
